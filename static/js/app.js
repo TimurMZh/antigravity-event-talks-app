@@ -21,6 +21,7 @@ const floatingActions = document.getElementById('floating-actions');
 const selectedCountDisplay = document.getElementById('selected-count');
 const clearSelectedBtn = document.getElementById('clear-selected-btn');
 const tweetSelectedBtn = document.getElementById('tweet-selected-btn');
+const exportCsvBtn = document.getElementById('export-csv-btn');
 
 // Stats Elements
 const statAll = document.getElementById('stat-all');
@@ -242,11 +243,12 @@ function renderFeed(items) {
                 ${item.html}
             </div>
             <div class="card-actions">
-                <button class="btn btn-secondary btn-icon copy-text-btn" data-id="${item.id}" title="Copy Clean Text">
-                    <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                <button class="btn btn-secondary copy-text-btn" data-id="${item.id}" title="Copy Clean Text to Clipboard">
+                    <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
                         <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
                         <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
                     </svg>
+                    <span>Copy Text</span>
                 </button>
                 <button class="btn btn-primary tweet-card-btn" data-id="${item.id}">
                     <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" class="x-icon">
@@ -469,6 +471,13 @@ function setupEventListeners() {
         window.open(twitterUrl, '_blank', 'noopener,noreferrer');
         closeTweetModal();
     });
+    
+    // Export CSV Button
+    if (exportCsvBtn) {
+        exportCsvBtn.addEventListener('click', () => {
+            exportToCSV();
+        });
+    }
 }
 
 // Toast notification helper
@@ -586,4 +595,80 @@ function renderPreview(text) {
     escaped = escaped.replace(hashtagPattern, '<span class="text-rose">$1</span>');
     
     tweetPreviewRendered.innerHTML = escaped;
+}
+
+// Export filtered release notes to CSV
+function exportToCSV() {
+    let filtered = allReleases;
+    if (activeFilterType !== 'all') {
+        if (activeFilterType === 'Other') {
+            filtered = allReleases.filter(r => r.type !== 'Feature' && r.type !== 'Issue');
+        } else {
+            filtered = allReleases.filter(r => r.type === activeFilterType);
+        }
+    }
+    
+    if (searchQuery.trim() !== '') {
+        const query = searchQuery.toLowerCase().trim();
+        filtered = filtered.filter(r => {
+            const inText = r.text.toLowerCase().includes(query);
+            const inDate = r.date.toLowerCase().includes(query);
+            const inType = r.type.toLowerCase().includes(query);
+            return inText || inDate || inType;
+        });
+    }
+    
+    filtered.sort((a, b) => {
+        const dateA = new Date(a.updated || a.date);
+        const dateB = new Date(b.updated || b.date);
+        return sortBy === 'newest' ? dateB - dateA : dateA - dateB;
+    });
+    
+    if (filtered.length === 0) {
+        showToast('No items to export.', true);
+        return;
+    }
+    
+    // Construct CSV file
+    const headers = ['Date', 'Type', 'Link', 'Text'];
+    const csvRows = [headers.join(',')];
+    
+    filtered.forEach(item => {
+        const row = [
+            escapeCSV(item.date),
+            escapeCSV(item.type),
+            escapeCSV(item.link),
+            escapeCSV(item.text)
+        ];
+        csvRows.push(row.join(','));
+    });
+    
+    const csvContent = csvRows.join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `bigquery_releases_${activeFilterType}_${sortBy}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    showToast(`Successfully exported ${filtered.length} updates to CSV!`);
+}
+
+// Escape special CSV characters helper
+function escapeCSV(val) {
+    if (val === undefined || val === null) {
+        return '';
+    }
+    let formatted = val.toString();
+    // Double quotes double-up escape
+    formatted = formatted.replace(/"/g, '""');
+    // Wrap in quotes if it contains commas, double quotes, or newlines
+    if (formatted.includes(',') || formatted.includes('"') || formatted.includes('\n') || formatted.includes('\r')) {
+        return `"${formatted}"`;
+    }
+    return formatted;
 }
